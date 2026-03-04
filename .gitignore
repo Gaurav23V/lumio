@@ -13,3 +13,8 @@ apps/desktop/src-tauri/gen
 .env
 .env.local
 .env.*.local
+*.tsbuildinfo
+**/vitest.config.js
+**/vitest.config.js.map
+**/vitest.config.d.ts
+**/vitest.config.d.ts.map

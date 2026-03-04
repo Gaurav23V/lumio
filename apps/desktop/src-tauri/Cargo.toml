@@ -1,0 +1,25 @@
+[package]
+name = "lumio-desktop"
+version = "0.1.0"
+description = "Lumio desktop shell"
+authors = ["Lumio"]
+edition = "2021"
+
+[lib]
+name = "lumio_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+argon2 = "0.5.3"
+tauri = { version = "2.9.2", features = [] }
+tauri-plugin-fs = "2.4.3"
+tauri-plugin-http = "2.5.2"
+tauri-plugin-opener = "2.5.0"
+tauri-plugin-sql = { version = "2.3.4", features = ["sqlite"] }
+tauri-plugin-stronghold = "2.4.0"
+
+[profile.dev.package.scrypt]
+opt-level = 3

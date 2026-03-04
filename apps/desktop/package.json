@@ -1,0 +1,38 @@
+{
+  "name": "@lumio/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "dev:tauri": "tauri dev",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --project integration",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@lumio/adapters": "workspace:*",
+    "@lumio/core": "workspace:*",
+    "@lumio/ui": "workspace:*",
+    "@supabase/supabase-js": "^2.84.0",
+    "@tauri-apps/api": "latest",
+    "@tauri-apps/plugin-fs": "latest",
+    "@tauri-apps/plugin-http": "latest",
+    "@tauri-apps/plugin-opener": "latest",
+    "@tauri-apps/plugin-sql": "latest",
+    "@tauri-apps/plugin-stronghold": "latest",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "latest",
+    "@types/react": "^19.2.4",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.0",
+    "vite": "^7.2.2"
+  }
+}

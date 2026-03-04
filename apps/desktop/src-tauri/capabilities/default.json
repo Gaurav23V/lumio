@@ -1,0 +1,38 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability set for Lumio desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "sql:default",
+    "sql:allow-execute",
+    "http:default",
+    "stronghold:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "$APPLOCALDATA/*"
+        },
+        {
+          "path": "$APPLOCALDATA/**/*"
+        },
+        {
+          "path": "$APPDATA/*"
+        },
+        {
+          "path": "$APPDATA/**/*"
+        }
+      ]
+    },
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:allow-mkdir",
+    "fs:allow-exists",
+    "fs:allow-open",
+    "fs:allow-rename",
+    "fs:allow-remove"
+  ]
+}

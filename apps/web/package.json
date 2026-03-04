@@ -1,0 +1,31 @@
+{
+  "name": "@lumio/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@lumio/adapters": "workspace:*",
+    "@lumio/core": "workspace:*",
+    "@lumio/ui": "workspace:*",
+    "@supabase/supabase-js": "^2.84.0",
+    "next": "^16.0.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/react": "^19.2.4",
+    "@types/react-dom": "^19.2.3"
+  }
+}
