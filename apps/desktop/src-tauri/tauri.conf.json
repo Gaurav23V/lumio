@@ -22,9 +22,7 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": []
+    "active": false
   },
   "plugins": {
     "sql": {

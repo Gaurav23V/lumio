@@ -19,7 +19,7 @@
     "@lumio/core": "workspace:*",
     "@lumio/ui": "workspace:*",
     "@supabase/supabase-js": "^2.84.0",
-    "@tauri-apps/api": "latest",
+    "@tauri-apps/api": "2.10.1",
     "@tauri-apps/plugin-fs": "latest",
     "@tauri-apps/plugin-http": "latest",
     "@tauri-apps/plugin-opener": "latest",
