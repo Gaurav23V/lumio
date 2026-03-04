@@ -1,0 +1,21 @@
+{
+  "name": "@lumio/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --project integration"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  }
+}
