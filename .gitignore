@@ -18,3 +18,8 @@ apps/desktop/src-tauri/gen
 **/vitest.config.js.map
 **/vitest.config.d.ts
 **/vitest.config.d.ts.map
+apps/desktop/vite.config.js
+apps/desktop/vite.config.js.map
+apps/desktop/vite.config.d.ts
+apps/desktop/vite.config.d.ts.map
+apps/desktop/src/*.d.ts.map
