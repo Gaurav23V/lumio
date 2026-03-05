@@ -4,6 +4,8 @@ dist
 coverage
 .turbo
 .next
+apps/web/public/pdf.worker.min.mjs
+apps/desktop/public/pdf.worker.min.mjs
 playwright-report
 test-results
 *.log

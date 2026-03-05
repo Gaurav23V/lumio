@@ -2,11 +2,33 @@ import type { CloudMetadataAdapter } from "@lumio/core";
 import type { Book, CloudChanges, Folder, ProgressRecord } from "@lumio/core";
 import { nowIsoString } from "@lumio/core";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { withRetry } from "../shared/retry";
 import type { Database } from "./database.types";
 
 type SupabaseFolderRow = Database["public"]["Tables"]["folders"]["Row"];
 type SupabaseBookRow = Database["public"]["Tables"]["books"]["Row"];
 type SupabaseProgressRow = Database["public"]["Tables"]["progress"]["Row"];
+
+const NETWORK_RETRY_OPTIONS = {
+  maxAttempts: 3,
+  baseDelayMs: 250,
+  maxDelayMs: 2_000,
+  shouldRetry: (error: unknown) => isRetryableNetworkError(error)
+} as const;
+
+function isRetryableNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("network request failed") ||
+    message.includes("fetch failed") ||
+    message.includes("networkerror") ||
+    message.includes("load failed")
+  );
+}
 
 function maxIsoTimestamp(values: string[]): string | null {
   if (values.length === 0) {
@@ -138,33 +160,34 @@ export class SupabaseMetadataAdapter implements CloudMetadataAdapter {
   ) {}
 
   async pullChanges(sinceCursor: string | null): Promise<CloudChanges> {
-    let folderQuery: any = this.client
-      .from("folders")
-      .select("*")
-      .eq("user_id", this.userId)
-      .order("updated_at", { ascending: true });
-    let bookQuery: any = this.client
-      .from("books")
-      .select("*")
-      .eq("user_id", this.userId)
-      .order("updated_at", { ascending: true });
-    let progressQuery: any = this.client
-      .from("progress")
-      .select("*")
-      .eq("user_id", this.userId)
-      .order("updated_at", { ascending: true });
+    const [foldersRaw, booksRaw, progressRaw] = await withRetry(
+      async () => {
+        let folderQuery: any = this.client
+          .from("folders")
+          .select("*")
+          .eq("user_id", this.userId)
+          .order("updated_at", { ascending: true });
+        let bookQuery: any = this.client
+          .from("books")
+          .select("*")
+          .eq("user_id", this.userId)
+          .order("updated_at", { ascending: true });
+        let progressQuery: any = this.client
+          .from("progress")
+          .select("*")
+          .eq("user_id", this.userId)
+          .order("updated_at", { ascending: true });
 
-    if (sinceCursor) {
-      folderQuery = folderQuery.gt("updated_at", sinceCursor);
-      bookQuery = bookQuery.gt("updated_at", sinceCursor);
-      progressQuery = progressQuery.gt("updated_at", sinceCursor);
-    }
+        if (sinceCursor) {
+          folderQuery = folderQuery.gt("updated_at", sinceCursor);
+          bookQuery = bookQuery.gt("updated_at", sinceCursor);
+          progressQuery = progressQuery.gt("updated_at", sinceCursor);
+        }
 
-    const [foldersRaw, booksRaw, progressRaw] = await Promise.all([
-      unwrap(folderQuery),
-      unwrap(bookQuery),
-      unwrap(progressQuery)
-    ]);
+        return Promise.all([unwrap(folderQuery), unwrap(bookQuery), unwrap(progressQuery)]);
+      },
+      NETWORK_RETRY_OPTIONS
+    );
 
     const folders = (foldersRaw as SupabaseFolderRow[]).map(mapFolderFromRow);
     const books = (booksRaw as SupabaseBookRow[]).map(mapBookFromRow);
@@ -191,10 +214,14 @@ export class SupabaseMetadataAdapter implements CloudMetadataAdapter {
     if (folders.length === 0) {
       return;
     }
-    await unwrap(
-      (this.client.from("folders") as any)
-        .upsert(folders.map(mapFolderToRow), { onConflict: "folder_id" })
-        .select("folder_id")
+    await withRetry(
+      async () =>
+        unwrap(
+          (this.client.from("folders") as any)
+            .upsert(folders.map(mapFolderToRow), { onConflict: "folder_id" })
+            .select("folder_id")
+        ),
+      NETWORK_RETRY_OPTIONS
     );
   }
 
@@ -202,10 +229,14 @@ export class SupabaseMetadataAdapter implements CloudMetadataAdapter {
     if (books.length === 0) {
       return;
     }
-    await unwrap(
-      (this.client.from("books") as any)
-        .upsert(books.map(mapBookToRow), { onConflict: "book_id" })
-        .select("book_id")
+    await withRetry(
+      async () =>
+        unwrap(
+          (this.client.from("books") as any)
+            .upsert(books.map(mapBookToRow), { onConflict: "book_id" })
+            .select("book_id")
+        ),
+      NETWORK_RETRY_OPTIONS
     );
   }
 
@@ -213,10 +244,14 @@ export class SupabaseMetadataAdapter implements CloudMetadataAdapter {
     if (progress.length === 0) {
       return;
     }
-    await unwrap(
-      (this.client.from("progress") as any)
-        .upsert(progress.map(mapProgressToRow), { onConflict: "book_id" })
-        .select("book_id")
+    await withRetry(
+      async () =>
+        unwrap(
+          (this.client.from("progress") as any)
+            .upsert(progress.map(mapProgressToRow), { onConflict: "book_id" })
+            .select("book_id")
+        ),
+      NETWORK_RETRY_OPTIONS
     );
   }
 
@@ -225,12 +260,16 @@ export class SupabaseMetadataAdapter implements CloudMetadataAdapter {
       return;
     }
     const now = nowIsoString();
-    await unwrap(
-      (this.client.from("books") as any)
-        .update({ deleted_at: now, updated_at: now })
-        .eq("user_id", this.userId)
-        .in("book_id", bookIds)
-        .select("book_id")
+    await withRetry(
+      async () =>
+        unwrap(
+          (this.client.from("books") as any)
+            .update({ deleted_at: now, updated_at: now })
+            .eq("user_id", this.userId)
+            .in("book_id", bookIds)
+            .select("book_id")
+        ),
+      NETWORK_RETRY_OPTIONS
     );
   }
 }

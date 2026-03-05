@@ -69,3 +69,5 @@ All PRs should pass:
 - If browser auth loops, verify redirect URIs and site URL settings.
 - If Drive upload fails with 4xx in resumable mode, restart the upload session.
 - If Supabase queries return empty unexpectedly, verify RLS policies and auth session.
+
+**Debugging upload/reader errors:** See [docs/OPERATIONS.md](docs/OPERATIONS.md#debugging-web-upload-and-reader-errors) for where to inspect logs (browser console/network, Supabase logs, Google Cloud).

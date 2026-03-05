@@ -6,10 +6,12 @@ import type { ReaderProgressEvent, ReaderSharedProps } from "./types";
 
 export type EpubReaderProps = ReaderSharedProps & {
   title?: string;
+  initialCfi?: string;
 };
 
 export function EpubReader(props: EpubReaderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const hasSkippedInitialRelocationRef = useRef(false);
   const renditionRef = useRef<{
     display: (target?: string) => Promise<void>;
     on: (event: "relocated", callback: (location: { start: { cfi?: string }; percentage?: number }) => void) => void;
@@ -27,9 +29,20 @@ export function EpubReader(props: EpubReaderProps) {
   useProgressReporter(pendingProgress, props.onProgress, { debounceMs: 750 });
 
   useEffect(() => {
+    if (
+      typeof props.initialVersion === "number" &&
+      Number.isFinite(props.initialVersion) &&
+      props.initialVersion > versionRef.current
+    ) {
+      versionRef.current = props.initialVersion;
+    }
+  }, [props.initialVersion]);
+
+  useEffect(() => {
     if (!containerRef.current) {
       return;
     }
+    hasSkippedInitialRelocationRef.current = false;
     const book = ePub(props.source);
     const rendition = book.renderTo(containerRef.current, {
       width: "100%",
@@ -40,6 +53,10 @@ export function EpubReader(props: EpubReaderProps) {
     bookRef.current = book;
 
     rendition.on("relocated", (location) => {
+      if (!hasSkippedInitialRelocationRef.current) {
+        hasSkippedInitialRelocationRef.current = true;
+        return;
+      }
       versionRef.current += 1;
       setPendingProgress({
         progressType: "EPUB",
@@ -54,7 +71,7 @@ export function EpubReader(props: EpubReaderProps) {
       });
     });
 
-    void rendition.display();
+    void rendition.display(props.initialCfi ?? undefined);
 
     return () => {
       rendition.destroy();
@@ -62,7 +79,7 @@ export function EpubReader(props: EpubReaderProps) {
       renditionRef.current = null;
       bookRef.current = null;
     };
-  }, [props.source, props.deviceId, props.initialVersion]);
+  }, [props.source, props.deviceId, props.initialVersion, props.initialCfi]);
 
   useEffect(() => {
     if (!renditionRef.current) {

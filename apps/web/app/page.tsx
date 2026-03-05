@@ -3,6 +3,7 @@
 import type { Book, Folder, ProgressRecord } from "@lumio/core";
 import { OfflineQueue, SyncEngine, nowIsoString } from "@lumio/core";
 import {
+  extractDriveErrorMessage,
   GoogleDriveAdapter,
   IndexedDbLocalAdapter,
   SupabaseMetadataAdapter
@@ -11,13 +12,41 @@ import { LibraryView, type ReaderProgressEvent } from "@lumio/ui/library";
 import dynamic from "next/dynamic";
 
 const ReaderShell = dynamic(
-  () => import("@lumio/ui").then((m) => ({ default: m.ReaderShell })),
+  async () => {
+    const [ui, pdfjs] = await Promise.all([import("@lumio/ui"), import("pdfjs-dist")]);
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+    return { default: ui.ReaderShell };
+  },
   { ssr: false }
 );
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isMissingBookForeignKeyError } from "@/lib/supabaseErrors";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import { sha256Hex } from "@/lib/utils";
+
+function readPdfPosition(payload: ProgressRecord["payload"]): { pageNumber: number; zoom: number } | null {
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+  const pageNumber = (payload as { pageNumber?: unknown }).pageNumber;
+  const zoom = (payload as { zoom?: unknown }).zoom;
+  if (typeof pageNumber !== "number" || !Number.isFinite(pageNumber) || pageNumber < 1) {
+    return null;
+  }
+  return {
+    pageNumber: Math.floor(pageNumber),
+    zoom: typeof zoom === "number" && Number.isFinite(zoom) && zoom > 0 ? zoom : 1
+  };
+}
+
+function readEpubCfi(payload: ProgressRecord["payload"]): string | null {
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+  const cfi = (payload as { cfi?: unknown }).cfi;
+  return typeof cfi === "string" && cfi.length > 0 ? cfi : null;
+}
 
 function toLibraryBook(book: Book) {
   return {
@@ -47,6 +76,7 @@ export default function HomePage() {
   const [statusMessage, setStatusMessage] = useState<string>("Initializing...");
   const [folders, setFolders] = useState<Folder[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
+  const [progressRecords, setProgressRecords] = useState<ProgressRecord[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [activeBookSource, setActiveBookSource] = useState<string | null>(null);
 
@@ -57,10 +87,23 @@ export default function HomePage() {
   const syncEngineRef = useRef<SyncEngine | null>(null);
   const driveAdapterRef = useRef<GoogleDriveAdapter | null>(null);
   const objectUrlsRef = useRef(new Map<string, string>());
+  const lastProgressFingerprintRef = useRef<string | null>(null);
 
   const activeBook = useMemo(
     () => books.find((book) => book.bookId === activeBookId) ?? null,
     [activeBookId, books]
+  );
+  const activeProgress = useMemo(
+    () => progressRecords.find((record) => record.bookId === activeBookId) ?? null,
+    [activeBookId, progressRecords]
+  );
+  const initialPdfPosition = useMemo(
+    () => (activeProgress?.progressType === "PDF" ? readPdfPosition(activeProgress.payload) : null),
+    [activeProgress]
+  );
+  const initialEpubCfi = useMemo(
+    () => (activeProgress?.progressType === "EPUB" ? readEpubCfi(activeProgress.payload) : null),
+    [activeProgress]
   );
 
   const getDriveToken = useCallback((): string | null => {
@@ -75,9 +118,14 @@ export default function HomePage() {
     if (!local) {
       return;
     }
-    const [nextFolders, nextBooks] = await Promise.all([local.getFolders(), local.getBooks()]);
+    const [nextFolders, nextBooks, nextProgress] = await Promise.all([
+      local.getFolders(),
+      local.getBooks(),
+      local.getProgress()
+    ]);
     setFolders(nextFolders);
     setBooks(nextBooks);
+    setProgressRecords(nextProgress);
   }, []);
 
   const runSync = useCallback(async () => {
@@ -85,11 +133,18 @@ export default function HomePage() {
     if (!sync) {
       return;
     }
-    const summary = await sync.runOnce();
-    setStatusMessage(
-      `Synced. Pulled F:${summary.pulled.folders} B:${summary.pulled.books} P:${summary.pulled.progress}`
-    );
-    await hydrateLocal();
+    try {
+      const summary = await sync.runOnce();
+      setStatusMessage(
+        `Synced. Pulled F:${summary.pulled.folders} B:${summary.pulled.books} P:${summary.pulled.progress}`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "sync failed";
+      console.warn("Sync run failed", error);
+      setStatusMessage(`Sync temporarily unavailable: ${message}`);
+    } finally {
+      await hydrateLocal();
+    }
   }, [hydrateLocal]);
 
   useEffect(() => {
@@ -142,7 +197,8 @@ export default function HomePage() {
           throw new Error("Google Drive provider token is missing");
         }
         return token;
-      }
+      },
+      fetchImpl: (input, init) => window.fetch(input, init)
     });
     const sync = new SyncEngine(cloud, local, queue);
 
@@ -179,6 +235,7 @@ export default function HomePage() {
       provider: "google",
       options: {
         redirectTo,
+        scopes: "openid email profile https://www.googleapis.com/auth/drive.file",
         queryParams: {
           access_type: "offline",
           prompt: "consent"
@@ -199,6 +256,7 @@ export default function HomePage() {
     setSession(null);
     setFolders([]);
     setBooks([]);
+    setProgressRecords([]);
     setStatusMessage("Signed out");
   }
 
@@ -235,8 +293,18 @@ export default function HomePage() {
   async function handleUpload(files: File[]): Promise<void> {
     const local = localAdapterRef.current;
     const cloud = cloudAdapterRef.current;
+    const queue = queueRef.current;
     const drive = driveAdapterRef.current;
-    if (!local || !cloud || !drive || !session) {
+    if (!local || !cloud || !queue || !drive || !session) {
+      setStatusMessage("Upload unavailable: app still initializing. Please wait and try again.");
+      return;
+    }
+
+    const token = getDriveToken();
+    if (!token) {
+      setStatusMessage(
+        "Google Drive token missing. Sign out and sign in again to grant Drive file access."
+      );
       return;
     }
 
@@ -262,6 +330,7 @@ export default function HomePage() {
         updatedAt: now,
         deletedAt: null
       };
+      let latestBook: Book = initialBook;
 
       await local.upsertBooks([initialBook]);
       setBooks((current) => [...current, initialBook]);
@@ -271,6 +340,7 @@ export default function HomePage() {
       void (async () => {
         try {
           const uploadingBook = { ...initialBook, syncStatus: "UPLOADING" as const, updatedAt: nowIsoString() };
+          latestBook = uploadingBook;
           await local.upsertBooks([uploadingBook]);
           setBooks((current) => current.map((book) => (book.bookId === bookId ? uploadingBook : book)));
 
@@ -288,20 +358,37 @@ export default function HomePage() {
             contentHash: hash,
             driveFileId: uploadResult.driveFileId,
             driveMd5: uploadResult.md5,
-            syncStatus: "SYNCED",
+            syncStatus: "LOCAL_ONLY",
             updatedAt: nowIsoString()
           };
+          latestBook = syncedBook;
           await local.upsertBooks([syncedBook]);
-          await cloud.pushBooks([syncedBook]);
           setBooks((current) => current.map((book) => (book.bookId === bookId ? syncedBook : book)));
-          setStatusMessage(`Uploaded ${file.name}`);
+
+          try {
+            await cloud.pushBooks([syncedBook]);
+            const cloudSyncedBook: Book = { ...syncedBook, syncStatus: "SYNCED", updatedAt: nowIsoString() };
+            await local.upsertBooks([cloudSyncedBook]);
+            setBooks((current) => current.map((book) => (book.bookId === bookId ? cloudSyncedBook : book)));
+            setStatusMessage(`Uploaded ${file.name}`);
+          } catch (error) {
+            await queue.enqueue({
+              operationId: crypto.randomUUID(),
+              operationType: "IMPORT_BOOK",
+              payload: syncedBook
+            });
+            const message = error instanceof Error ? error.message : "metadata sync queued after upload";
+            setStatusMessage(`Uploaded ${file.name} to Drive; metadata sync queued: ${message}`);
+          }
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Upload failed";
+          const message = extractDriveErrorMessage(error);
           setStatusMessage(`Upload failed: ${message}`);
+          const erroredBook: Book = { ...latestBook, syncStatus: "ERROR", updatedAt: nowIsoString() };
+          await local.upsertBooks([erroredBook]);
           setBooks((current) =>
             current.map((book) =>
               book.bookId === bookId
-                ? { ...book, syncStatus: "ERROR", updatedAt: nowIsoString() }
+                ? erroredBook
                 : book
             )
           );
@@ -324,6 +411,12 @@ export default function HomePage() {
       return;
     }
 
+    const hasLocalProgress = progressRecords.some((record) => record.bookId === bookId);
+    if (!hasLocalProgress) {
+      setStatusMessage("Loading latest reading position...");
+      await runSync();
+    }
+
     try {
       const bytes = await drive.downloadBook(book.driveFileId);
       const mimeType = book.fileType === "EPUB" ? "application/epub+zip" : "application/pdf";
@@ -334,7 +427,7 @@ export default function HomePage() {
       setActiveBookSource(objectUrl);
       setStatusMessage(`Opened ${book.title}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown open error";
+      const message = extractDriveErrorMessage(error);
       setStatusMessage(`Failed to open book: ${message}`);
     }
   }
@@ -343,12 +436,18 @@ export default function HomePage() {
     if (!session || !activeBookId) {
       return;
     }
+    const progressFingerprint = `${activeBookId}:${event.progressType}:${event.version}`;
+    if (lastProgressFingerprintRef.current === progressFingerprint) {
+      return;
+    }
+    lastProgressFingerprintRef.current = progressFingerprint;
     const local = localAdapterRef.current;
     const cloud = cloudAdapterRef.current;
     const queue = queueRef.current;
     if (!local || !cloud || !queue) {
       return;
     }
+    const activeBookForProgress = books.find((item) => item.bookId === activeBookId) ?? null;
 
     const record: ProgressRecord = {
       bookId: activeBookId,
@@ -362,16 +461,37 @@ export default function HomePage() {
     };
 
     await local.upsertProgress([record]);
+    setProgressRecords((current) => {
+      const next = new Map(current.map((item) => [item.bookId, item]));
+      next.set(record.bookId, record);
+      return [...next.values()];
+    });
     try {
       await cloud.pushProgress([record]);
     } catch (error) {
+      if (activeBookForProgress && isMissingBookForeignKeyError(error)) {
+        try {
+          await cloud.pushBooks([{ ...activeBookForProgress, updatedAt: nowIsoString() }]);
+          await cloud.pushProgress([{ ...record, updatedAt: nowIsoString() }]);
+          return;
+        } catch {
+          // Fall through to queueing when direct recovery fails.
+        }
+      }
+      if (activeBookForProgress) {
+        await queue.enqueue({
+          operationId: crypto.randomUUID(),
+          operationType: "IMPORT_BOOK",
+          payload: activeBookForProgress
+        });
+      }
       await queue.enqueue({
         operationId: crypto.randomUUID(),
         operationType: "UPDATE_PROGRESS",
         payload: record
       });
       const message = error instanceof Error ? error.message : "queued progress after sync failure";
-      setStatusMessage(`Progress queued: ${message}`);
+      setStatusMessage(`Progress saved locally; cloud sync queued: ${message}`);
     }
   }
 
@@ -468,7 +588,10 @@ export default function HomePage() {
             format={activeBook.fileType}
             source={activeBookSource}
             deviceId={"web-browser"}
-            initialVersion={0}
+            initialVersion={activeProgress?.version ?? 0}
+            initialPdfPageNumber={initialPdfPosition?.pageNumber}
+            initialPdfZoom={initialPdfPosition?.zoom}
+            initialEpubCfi={initialEpubCfi ?? undefined}
             title={activeBook.title}
             onProgress={(event) => void handleProgress(event)}
           />

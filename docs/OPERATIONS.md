@@ -1,5 +1,21 @@
 # Operations Runbook
 
+## Debugging Web Upload and Reader Errors
+
+The web app talks directly from the browser to Supabase and Google Drive—there is no Lumio backend server. Use these places to inspect errors:
+
+| Layer | Where to look | What you see |
+|-------|---------------|--------------|
+| **Browser** | DevTools → Console | JS errors, adapter exceptions (e.g. `HttpResponseError` from Drive) |
+| **Browser** | DevTools → Network | Failed requests to `*.supabase.co` and `*.googleapis.com` (status, response body) |
+| **Supabase** | Dashboard → Logs → [API logs](https://supabase.com/dashboard/project/_/logs/edge-logs) | REST/GraphQL requests, status codes, latency |
+| **Supabase** | Dashboard → Logs → Postgres logs | Query errors, RLS rejections |
+| **Supabase** | Dashboard → Logs → Auth logs | Auth failures, token issues |
+| **Google Cloud** | APIs & Services → Drive API → Metrics | Request counts, error rates |
+| **Google Cloud** | Cloud Logging (if enabled) | Drive API request/response details |
+
+**Quick checks:** Filter Network by `supabase` or `googleapis`; in Supabase API logs filter by path (e.g. `/rest/v1/books`) or status code.
+
 ## Sync Troubleshooting
 
 ## Quick Triage

@@ -18,14 +18,71 @@ type DriveFileMetadata = {
   name?: string;
 };
 
+type DriveApiErrorPayload = {
+  error?: {
+    code?: number;
+    message?: string;
+    errors?: Array<{ message?: string; reason?: string }>;
+  };
+};
+
+/**
+ * Parses Google Drive API error JSON and returns an actionable user-facing message.
+ * Handles 401 (missing/invalid token), 403 (insufficient scope), and other API errors.
+ */
+export function parseDriveApiError(body: string, status: number): string {
+  try {
+    const parsed = JSON.parse(body) as DriveApiErrorPayload;
+    const msg = parsed.error?.message;
+    const reason = parsed.error?.errors?.[0]?.reason ?? parsed.error?.errors?.[0]?.message;
+    if (msg) {
+      const hint =
+        status === 401
+          ? " Sign out and sign in again to refresh your Drive token."
+          : status === 403 && /insufficient|scope|permission/i.test(msg)
+            ? " Ensure the app has Drive file access. Sign out and sign in again to grant scope."
+            : "";
+      return `${msg}${hint}`;
+    }
+    if (reason) {
+      return String(reason);
+    }
+  } catch {
+    // body is not JSON, fall through
+  }
+  if (status === 401) {
+    return "Drive authentication failed. Sign out and sign in again to refresh your token.";
+  }
+  if (status === 403) {
+    return "Drive access denied. Ensure the app has Drive file scope. Sign out and sign in again.";
+  }
+  return `Drive API error (${status}). ${body.slice(0, 200)}`;
+}
+
 class HttpResponseError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly body: string
   ) {
-    super(message);
+    const actionable = parseDriveApiError(body, status);
+    super(`${message} ${actionable}`);
+    this.name = "HttpResponseError";
   }
+}
+
+/**
+ * Extracts an actionable error message from Drive adapter errors for display to users.
+ */
+export function extractDriveErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (/provider token|token is missing/i.test(msg)) {
+      return "Google Drive access token is missing. Sign out and sign in again to grant Drive access.";
+    }
+    return msg;
+  }
+  return "Upload failed. Please try again or sign out and sign in.";
 }
 
 export type GoogleDriveAdapterOptions = {
@@ -36,8 +93,25 @@ export type GoogleDriveAdapterOptions = {
   chunkSizeBytes?: number;
 };
 
+function defaultFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(input, init);
+}
+
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isAuthOrTokenError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const m = error.message.toLowerCase();
+  return (
+    m.includes("provider token") ||
+    m.includes("access token") ||
+    m.includes("token is missing") ||
+    m.includes("insufficient") ||
+    m.includes("unauthorized") ||
+    m.includes("invalid token")
+  );
 }
 
 function toUrl(path: string, base = DRIVE_API_BASE): string {
@@ -74,7 +148,7 @@ export class GoogleDriveAdapter implements FileCloudAdapter {
   private folderCache: { appId: string; booksId: string } | null = null;
 
   constructor(private readonly options: GoogleDriveAdapterOptions) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? defaultFetch;
     this.appFolderName = options.appFolderName ?? "Lumio";
     this.booksFolderName = options.booksFolderName ?? "books";
     this.chunkSizeBytes = sanitizeChunkSize(options.chunkSizeBytes ?? 4 * 1024 * 1024);
@@ -203,8 +277,10 @@ export class GoogleDriveAdapter implements FileCloudAdapter {
           throw new HttpResponseError("Drive resumable upload chunk failed", result.status, body);
         },
         {
-          shouldRetry: (error) =>
-            error instanceof HttpResponseError ? isRetryableStatus(error.status) : true
+          shouldRetry: (error) => {
+            if (isAuthOrTokenError(error)) return false;
+            return error instanceof HttpResponseError ? isRetryableStatus(error.status) : true;
+          }
         }
       );
 
@@ -283,8 +359,10 @@ export class GoogleDriveAdapter implements FileCloudAdapter {
         throw new HttpResponseError(`Drive request failed: ${path}`, response.status, body);
       },
       {
-        shouldRetry: (error) =>
-          error instanceof HttpResponseError ? isRetryableStatus(error.status) : true
+        shouldRetry: (error) => {
+          if (isAuthOrTokenError(error)) return false;
+          return error instanceof HttpResponseError ? isRetryableStatus(error.status) : true;
+        }
       }
     );
   }

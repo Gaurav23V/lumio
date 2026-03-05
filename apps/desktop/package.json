@@ -18,6 +18,7 @@
     "@lumio/adapters": "workspace:*",
     "@lumio/core": "workspace:*",
     "@lumio/ui": "workspace:*",
+    "pdfjs-dist": "^5.5.207",
     "@supabase/supabase-js": "^2.84.0",
     "@tauri-apps/api": "2.10.1",
     "@tauri-apps/plugin-fs": "latest",

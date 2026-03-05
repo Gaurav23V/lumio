@@ -4,8 +4,8 @@ import { ReaderToolbar } from "./ReaderToolbar";
 import { useProgressReporter } from "./useProgressReporter";
 import type { ReaderProgressEvent, ReaderSharedProps } from "./types";
 
-GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.5.207/pdf.worker.min.mjs";
+/** Worker served from app public folder (e.g. /pdf.worker.min.mjs). Apps must copy it from pdfjs-dist/build/ */
+GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 export type PdfReaderProps = ReaderSharedProps & {
   title?: string;
@@ -17,6 +17,8 @@ export function PdfReader(props: PdfReaderProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
   const versionRef = useRef(props.initialVersion ?? 0);
+  const hasSkippedInitialEmitRef = useRef(false);
+  const suppressNextEmitRef = useRef(false);
 
   const [pageNumber, setPageNumber] = useState(props.initialPageNumber ?? 1);
   const [zoom, setZoom] = useState(props.initialZoom ?? 1);
@@ -58,6 +60,8 @@ export function PdfReader(props: PdfReaderProps) {
 
   useEffect(() => {
     let cancelled = false;
+    hasSkippedInitialEmitRef.current = false;
+    suppressNextEmitRef.current = false;
     async function loadDocument() {
       const loadingTask = getDocument(props.source);
       const doc = await loadingTask.promise;
@@ -88,6 +92,46 @@ export function PdfReader(props: PdfReaderProps) {
   }, [renderCurrentPage]);
 
   useEffect(() => {
+    if (
+      typeof props.initialVersion === "number" &&
+      Number.isFinite(props.initialVersion) &&
+      props.initialVersion > versionRef.current
+    ) {
+      versionRef.current = props.initialVersion;
+    }
+  }, [props.initialVersion]);
+
+  useEffect(() => {
+    if (
+      typeof props.initialPageNumber === "number" &&
+      Number.isFinite(props.initialPageNumber) &&
+      props.initialPageNumber > 0
+    ) {
+      suppressNextEmitRef.current = true;
+      setPageNumber(Math.floor(props.initialPageNumber));
+    }
+  }, [props.initialPageNumber]);
+
+  useEffect(() => {
+    if (
+      typeof props.initialZoom === "number" &&
+      Number.isFinite(props.initialZoom) &&
+      props.initialZoom > 0
+    ) {
+      suppressNextEmitRef.current = true;
+      setZoom(props.initialZoom);
+    }
+  }, [props.initialZoom]);
+
+  useEffect(() => {
+    if (!hasSkippedInitialEmitRef.current) {
+      hasSkippedInitialEmitRef.current = true;
+      return;
+    }
+    if (suppressNextEmitRef.current) {
+      suppressNextEmitRef.current = false;
+      return;
+    }
     versionRef.current += 1;
     setPendingProgress({
       progressType: "PDF",

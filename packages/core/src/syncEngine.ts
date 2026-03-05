@@ -50,6 +50,17 @@ function mergeProgress(local: ProgressRecord[], remote: ProgressRecord[]): Progr
   return [...byId.values()];
 }
 
+function isMissingBookReferenceError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("progress_book_id_fkey") ||
+    (message.includes("foreign key") && message.includes("books"))
+  );
+}
+
 export type SyncRunSummary = {
   pulled: {
     folders: number;
@@ -124,7 +135,21 @@ export class SyncEngine {
     switch (operation.operationType) {
       case "UPDATE_PROGRESS": {
         const progress = ProgressSchema.parse(operation.payload);
-        await this.cloud.pushProgress([progress]);
+        try {
+          await this.cloud.pushProgress([progress]);
+          return;
+        } catch (error) {
+          if (!isMissingBookReferenceError(error)) {
+            throw error;
+          }
+          const localBooks = await this.local.getBooks();
+          const localBook = localBooks.find((item) => item.bookId === progress.bookId);
+          if (!localBook) {
+            throw error;
+          }
+          await this.cloud.pushBooks([localBook]);
+          await this.cloud.pushProgress([progress]);
+        }
         return;
       }
       case "MOVE_BOOK_FOLDER":

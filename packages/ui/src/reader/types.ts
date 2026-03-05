@@ -17,5 +17,8 @@ export type ReaderSharedProps = {
   source: string;
   deviceId: string;
   initialVersion?: number;
+  initialEpubCfi?: string;
+  initialPdfPageNumber?: number;
+  initialPdfZoom?: number;
   onProgress: (event: ReaderProgressEvent) => void;
 };

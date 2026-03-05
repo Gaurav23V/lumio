@@ -17,6 +17,7 @@ export function ReaderShell(props: ReaderShellProps) {
         onProgress={props.onProgress}
         deviceId={props.deviceId}
         initialVersion={props.initialVersion}
+        initialCfi={props.initialEpubCfi}
       />
     );
   }
@@ -28,6 +29,8 @@ export function ReaderShell(props: ReaderShellProps) {
       onProgress={props.onProgress}
       deviceId={props.deviceId}
       initialVersion={props.initialVersion}
+      initialPageNumber={props.initialPdfPageNumber}
+      initialZoom={props.initialPdfZoom}
     />
   );
 }

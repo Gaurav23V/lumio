@@ -18,6 +18,10 @@ export function getSupabaseBrowserClient(): SupabaseClient {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true
+    },
+    global: {
+      fetch: (input, init) =>
+        (typeof window !== "undefined" ? window.fetch(input, init) : globalThis.fetch(input, init))
     }
   });
   return client;

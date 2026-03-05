@@ -11,9 +11,11 @@ export function useProgressReporter<T>(
 ): void {
   const debounceMs = options.debounceMs ?? 1_000;
   const latestValue = useRef<T | null>(value);
+  const latestOnReport = useRef(onReport);
   const timer = useRef<number | null>(null);
 
   latestValue.current = value;
+  latestOnReport.current = onReport;
 
   useEffect(() => {
     if (value === null) {
@@ -24,7 +26,7 @@ export function useProgressReporter<T>(
     }
     timer.current = window.setTimeout(() => {
       if (latestValue.current !== null) {
-        onReport(latestValue.current);
+        latestOnReport.current(latestValue.current);
       }
     }, debounceMs);
 
@@ -33,7 +35,7 @@ export function useProgressReporter<T>(
         window.clearTimeout(timer.current);
       }
     };
-  }, [value, debounceMs, onReport]);
+  }, [value, debounceMs]);
 
   useEffect(() => {
     return () => {
@@ -41,8 +43,8 @@ export function useProgressReporter<T>(
         window.clearTimeout(timer.current);
       }
       if (latestValue.current !== null) {
-        onReport(latestValue.current);
+        latestOnReport.current(latestValue.current);
       }
     };
-  }, [onReport]);
+  }, []);
 }

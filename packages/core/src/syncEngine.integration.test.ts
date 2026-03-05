@@ -79,6 +79,27 @@ class FakeCloudMetadataAdapter implements CloudMetadataAdapter {
   }
 }
 
+class MissingBookCloudMetadataAdapter extends FakeCloudMetadataAdapter {
+  private readonly cloudBookIds = new Set<string>();
+
+  async pushBooks(books: Book[]): Promise<void> {
+    await super.pushBooks(books);
+    for (const book of books) {
+      this.cloudBookIds.add(book.bookId);
+    }
+  }
+
+  async pushProgress(progress: ProgressRecord[]): Promise<void> {
+    const missing = progress.find((item) => !this.cloudBookIds.has(item.bookId));
+    if (missing) {
+      throw new Error(
+        'insert or update on table "progress" violates foreign key constraint "progress_book_id_fkey"'
+      );
+    }
+    await super.pushProgress(progress);
+  }
+}
+
 function makeFolder(): Folder {
   return {
     folderId: "018f4fca-56a0-7b8a-9eea-1258356b2100",
@@ -157,5 +178,33 @@ describe("SyncEngine", () => {
     expect(local.progress).toHaveLength(1);
     expect(cloud.pushedProgress).toHaveLength(1);
     expect(local.cursor).toBe("cursor-001");
+  });
+
+  it("recovers queued progress writes by pushing missing book first", async () => {
+    const local = new FakeLocalStateAdapter();
+    const book = makeBook();
+    local.books = [book];
+    const cloud = new MissingBookCloudMetadataAdapter({
+      folders: [],
+      books: [],
+      progress: [],
+      nextCursor: "cursor-002"
+    });
+    const queue = new OfflineQueue(new InMemoryQueueStorage());
+    await queue.enqueue({
+      operationId: "missing-book-progress-op",
+      operationType: "UPDATE_PROGRESS",
+      payload: makeProgress()
+    });
+
+    const engine = new SyncEngine(cloud, local, queue);
+    const summary = await engine.runOnce();
+
+    expect(summary.queue.processed).toBe(1);
+    expect(summary.queue.failed).toBe(0);
+    expect(cloud.pushedBooks).toHaveLength(1);
+    expect(cloud.pushedBooks[0]?.bookId).toBe(book.bookId);
+    expect(cloud.pushedProgress).toHaveLength(1);
+    expect(cloud.pushedProgress[0]?.bookId).toBe(book.bookId);
   });
 });

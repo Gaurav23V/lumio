@@ -73,6 +73,10 @@ class FakeQueryBuilder implements PromiseLike<QueryResponse> {
     if (this.operation === "update") {
       return { data: [this.updatePayload], error: null };
     }
+    if (this.context.failNextReads > 0) {
+      this.context.failNextReads -= 1;
+      throw new Error("TypeError: Failed to fetch");
+    }
 
     const sourceRows = this.context.tables[this.tableName];
     const filtered = sourceRows.filter((row) => {
@@ -105,6 +109,7 @@ class FakeSupabaseClient {
   };
   upserts: Array<{ table: TableName; rows: unknown[] }> = [];
   updates: Array<{ table: TableName; payload: Record<string, unknown> }> = [];
+  failNextReads = 0;
 
   from(tableName: TableName): FakeQueryBuilder {
     return new FakeQueryBuilder(tableName, this);
@@ -208,5 +213,19 @@ describe("SupabaseMetadataAdapter", () => {
 
     expect(client.upserts.some((item) => item.table === "books")).toBe(true);
     expect(client.updates.some((item) => item.table === "books")).toBe(true);
+  });
+
+  it("retries transient fetch failures for pullChanges", async () => {
+    const client = createFakeClient();
+    client.failNextReads = 2;
+    const adapter = new SupabaseMetadataAdapter(
+      client as unknown as SupabaseClient<Database>,
+      "018f4fca-56a0-7b8a-9eea-1258356b2402"
+    );
+
+    const changes = await adapter.pullChanges(null);
+    expect(changes.folders).toHaveLength(1);
+    expect(changes.books).toHaveLength(1);
+    expect(changes.progress).toHaveLength(1);
   });
 });

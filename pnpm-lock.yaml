@@ -74,6 +74,9 @@ importers:
       '@tauri-apps/plugin-stronghold':
         specifier: latest
         version: 2.3.1
+      pdfjs-dist:
+        specifier: ^5.5.207
+        version: 5.5.207
       react:
         specifier: ^19.2.0
         version: 19.2.4
@@ -114,6 +117,9 @@ importers:
       next:
         specifier: ^16.0.3
         version: 16.1.6(@playwright/test@1.58.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      pdfjs-dist:
+        specifier: ^5.5.207
+        version: 5.5.207
       react:
         specifier: ^19.2.0
         version: 19.2.4

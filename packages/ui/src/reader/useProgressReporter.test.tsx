@@ -26,4 +26,24 @@ describe("useProgressReporter", () => {
 
     vi.useRealTimers();
   });
+
+  it("does not emit immediately when callback reference changes", () => {
+    vi.useFakeTimers();
+    const onReportA = vi.fn();
+    const onReportB = vi.fn();
+    const { rerender } = render(<Harness value={7} onReport={onReportA} />);
+
+    rerender(<Harness value={7} onReport={onReportB} />);
+    expect(onReportA).not.toHaveBeenCalled();
+    expect(onReportB).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onReportA).not.toHaveBeenCalled();
+    expect(onReportB).toHaveBeenCalledTimes(1);
+    expect(onReportB).toHaveBeenCalledWith(7);
+
+    vi.useRealTimers();
+  });
 });

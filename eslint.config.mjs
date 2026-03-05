@@ -8,7 +8,8 @@ export default tseslint.config(
       "**/dist/**",
       "**/.next/**",
       "**/coverage/**",
-      "**/src-tauri/target/**"
+      "**/src-tauri/target/**",
+      "**/public/**/*.mjs"
     ]
   },
   js.configs.recommended,
