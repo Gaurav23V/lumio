@@ -59,4 +59,33 @@ describe("coalesceProgressOperations", () => {
     expect(result).toHaveLength(2);
     expect(result[0]?.operationId).toBe("move-op");
   });
+
+  it("coalesces duplicate import operations by book id", () => {
+    const olderImport = makeOperation({
+      operationId: "import-op-1",
+      operationType: "IMPORT_BOOK",
+      payload: { bookId: "book-1", title: "Old title" },
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z"
+    });
+    const newerImport = makeOperation({
+      operationId: "import-op-2",
+      operationType: "IMPORT_BOOK",
+      payload: { bookId: "book-1", title: "New title" },
+      updatedAt: "2026-01-01T00:02:00.000Z",
+      createdAt: "2026-01-01T00:02:00.000Z"
+    });
+    const otherImport = makeOperation({
+      operationId: "import-op-3",
+      operationType: "IMPORT_BOOK",
+      payload: { bookId: "book-2", title: "Another" },
+      updatedAt: "2026-01-01T00:03:00.000Z",
+      createdAt: "2026-01-01T00:03:00.000Z"
+    });
+
+    const result = coalesceProgressOperations([olderImport, newerImport, otherImport]);
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.operationId)).toContain("import-op-2");
+    expect(result.map((item) => item.operationId)).toContain("import-op-3");
+  });
 });

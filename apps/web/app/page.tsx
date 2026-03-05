@@ -48,6 +48,15 @@ function readEpubCfi(payload: ProgressRecord["payload"]): string | null {
   return typeof cfi === "string" && cfi.length > 0 ? cfi : null;
 }
 
+function getProgressPayloadFingerprint(event: ReaderProgressEvent): string {
+  if (event.progressType === "PDF") {
+    const payload = event.payload as { pageNumber?: unknown; scrollRatio?: unknown; zoom?: unknown };
+    return `pdf:${payload.pageNumber ?? ""}:${payload.scrollRatio ?? ""}:${payload.zoom ?? ""}`;
+  }
+  const payload = event.payload as { cfi?: unknown; tocHref?: unknown; percent?: unknown };
+  return `epub:${payload.cfi ?? ""}:${payload.tocHref ?? ""}:${payload.percent ?? ""}`;
+}
+
 function toLibraryBook(book: Book) {
   return {
     bookId: book.bookId,
@@ -71,6 +80,7 @@ function toLibraryFolder(folder: Folder) {
 }
 
 export default function HomePage() {
+  const [isClientMounted, setIsClientMounted] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("Initializing...");
@@ -146,6 +156,10 @@ export default function HomePage() {
       await hydrateLocal();
     }
   }, [hydrateLocal]);
+
+  useEffect(() => {
+    setIsClientMounted(true);
+  }, []);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -436,7 +450,7 @@ export default function HomePage() {
     if (!session || !activeBookId) {
       return;
     }
-    const progressFingerprint = `${activeBookId}:${event.progressType}:${event.version}`;
+    const progressFingerprint = `${activeBookId}:${getProgressPayloadFingerprint(event)}`;
     if (lastProgressFingerprintRef.current === progressFingerprint) {
       return;
     }
@@ -469,16 +483,17 @@ export default function HomePage() {
     try {
       await cloud.pushProgress([record]);
     } catch (error) {
+      let shouldEnqueueImportBook = false;
       if (activeBookForProgress && isMissingBookForeignKeyError(error)) {
         try {
           await cloud.pushBooks([{ ...activeBookForProgress, updatedAt: nowIsoString() }]);
           await cloud.pushProgress([{ ...record, updatedAt: nowIsoString() }]);
           return;
         } catch {
-          // Fall through to queueing when direct recovery fails.
+          shouldEnqueueImportBook = true;
         }
       }
-      if (activeBookForProgress) {
+      if (shouldEnqueueImportBook && activeBookForProgress) {
         await queue.enqueue({
           operationId: crypto.randomUUID(),
           operationType: "IMPORT_BOOK",
@@ -503,6 +518,10 @@ export default function HomePage() {
       objectUrlsRef.current.clear();
     };
   }, []);
+
+  if (!isClientMounted) {
+    return null;
+  }
 
   if (!session) {
     return (

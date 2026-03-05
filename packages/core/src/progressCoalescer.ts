@@ -5,7 +5,11 @@ function isProgressOp(operation: SyncOperation): boolean {
   return operation.operationType === "UPDATE_PROGRESS";
 }
 
-function getProgressBookId(operation: SyncOperation): string | null {
+function isImportBookOp(operation: SyncOperation): boolean {
+  return operation.operationType === "IMPORT_BOOK";
+}
+
+function getPayloadBookId(operation: SyncOperation): string | null {
   const bookId = operation.payload.bookId;
   return typeof bookId === "string" ? bookId : null;
 }
@@ -21,34 +25,52 @@ function asVersioned(operation: SyncOperation) {
 }
 
 export function coalesceProgressOperations(operations: SyncOperation[]): SyncOperation[] {
-  const byBook = new Map<string, SyncOperation>();
-  const nonProgress: SyncOperation[] = [];
+  const progressByBook = new Map<string, SyncOperation>();
+  const importByBook = new Map<string, SyncOperation>();
+  const passthrough: SyncOperation[] = [];
 
   for (const operation of operations) {
-    if (!isProgressOp(operation)) {
-      nonProgress.push(operation);
+    if (isProgressOp(operation)) {
+      const bookId = getPayloadBookId(operation);
+      if (!bookId) {
+        passthrough.push(operation);
+        continue;
+      }
+
+      const existing = progressByBook.get(bookId);
+      if (!existing) {
+        progressByBook.set(bookId, operation);
+        continue;
+      }
+
+      const existingComparable = asVersioned(existing);
+      const operationComparable = asVersioned(operation);
+      const winner = resolveLastWriteWins(existingComparable, operationComparable);
+      progressByBook.set(bookId, winner === existingComparable ? existing : operation);
       continue;
     }
 
-    const bookId = getProgressBookId(operation);
-    if (!bookId) {
-      nonProgress.push(operation);
+    if (isImportBookOp(operation)) {
+      const bookId = getPayloadBookId(operation);
+      if (!bookId) {
+        passthrough.push(operation);
+        continue;
+      }
+
+      const existing = importByBook.get(bookId);
+      if (!existing) {
+        importByBook.set(bookId, operation);
+        continue;
+      }
+      const existingTime = Date.parse(existing.updatedAt);
+      const candidateTime = Date.parse(operation.updatedAt);
+      importByBook.set(bookId, candidateTime >= existingTime ? operation : existing);
       continue;
     }
-
-    const existing = byBook.get(bookId);
-    if (!existing) {
-      byBook.set(bookId, operation);
-      continue;
-    }
-
-    const existingComparable = asVersioned(existing);
-    const operationComparable = asVersioned(operation);
-    const winner = resolveLastWriteWins(existingComparable, operationComparable);
-    byBook.set(bookId, winner === existingComparable ? existing : operation);
+    passthrough.push(operation);
   }
 
-  return [...nonProgress, ...byBook.values()].sort((a, b) => {
+  return [...passthrough, ...importByBook.values(), ...progressByBook.values()].sort((a, b) => {
     const aTime = Date.parse(a.createdAt);
     const bTime = Date.parse(b.createdAt);
     return aTime - bTime;

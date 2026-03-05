@@ -5,6 +5,7 @@ import type { SyncOperation, SyncOperationType } from "./types";
 
 const DEFAULT_BASE_DELAY_MS = 1_000;
 const DEFAULT_MAX_DELAY_MS = 60_000;
+const PROCESSING_STALE_AFTER_MS = 5 * 60 * 1000;
 
 export function calculateBackoffMs(
   attempts: number,
@@ -70,7 +71,7 @@ export class OfflineQueue {
     return this.operations
       .filter((item) => {
         if (item.status === "PROCESSING") {
-          return false;
+          return Date.parse(item.updatedAt) + PROCESSING_STALE_AFTER_MS <= nowMs;
         }
         if (!item.nextRetryAt) {
           return true;

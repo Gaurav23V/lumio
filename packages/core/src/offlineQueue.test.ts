@@ -53,4 +53,21 @@ describe("OfflineQueue", () => {
     expect(state).toHaveLength(1);
     expect(state[0]?.operationId).toBe("op-2");
   });
+
+  it("retries processing operations when they become stale", async () => {
+    const queue = new OfflineQueue(new InMemoryQueueStorage());
+    await queue.enqueue({
+      operationId: "op-processing",
+      operationType: "UPDATE_PROGRESS",
+      payload: { bookId: "book-1", version: 1, deviceId: "desktop-a" }
+    });
+    await queue.markProcessing("op-processing", new Date("2026-01-01T00:00:00.000Z"));
+
+    const fresh = await queue.getRunnable(new Date("2026-01-01T00:04:59.000Z"));
+    expect(fresh).toHaveLength(0);
+
+    const stale = await queue.getRunnable(new Date("2026-01-01T00:05:01.000Z"));
+    expect(stale).toHaveLength(1);
+    expect(stale[0]?.operationId).toBe("op-processing");
+  });
 });
