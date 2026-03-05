@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "dev:tauri": "tauri dev",
+    "dev:tauri": "node scripts/dev-tauri.mjs",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "vitest run",

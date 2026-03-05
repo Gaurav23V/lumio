@@ -30,3 +30,5 @@ Tauri desktop shell for Lumio (Linux and Windows target).
 
 - Desktop provides offline metadata/cache behavior and background sync hooks.
 - Ensure Tauri prerequisites are installed before running `dev:tauri`.
+- `dev:tauri` now probes for a free localhost port (starting at `1420`) and keeps Vite + Tauri on the same port automatically.
+- Set `TAURI_DEV_SERVER_PORT` if you want a different starting port, for example `TAURI_DEV_SERVER_PORT=1500 pnpm --filter @lumio/desktop dev:tauri`.
